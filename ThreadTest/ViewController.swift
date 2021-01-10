@@ -7,6 +7,7 @@
 
 import UIKit
 import SnapKit
+import PromiseKit
 
 class ViewController: UIViewController {
 
@@ -66,7 +67,7 @@ class ViewController: UIViewController {
     }
 
     private func start(_ action: UIAction) {
-        FashionService.color = nil
+        FashionService.promise = nil
 
         controllers.forEach { controller in
             controller.view?.backgroundColor = .gray
@@ -88,37 +89,40 @@ class ColorController {
     weak var view: UIView?
 
     func refresh() {
-        FashionService.fetchNewFashion { newColor in
-            self.view?.backgroundColor = newColor
+        FashionService.fetchNewFashion { promise in
+            promise.done(on: .main) { newColor in
+                self.view?.backgroundColor = newColor
+            }.catch { _ in
+                // no-op
+            }
         }
     }
 }
 
 enum FashionService {
 
-    static let lock = NSLock()
-    static var color: UIColor?
+    static var promise: Promise<UIColor>?
 
-    static func fetchNewFashion(completion: @escaping (UIColor) -> Void) {
+    static let lock = NSLock()
+
+    static func fetchNewFashion(completion: @escaping (Promise<UIColor>) -> Void) {
         DispatchQueue.global().async {
             lock.lock()
 
-            if let color = color {
-                DispatchQueue.main.async {
-                    completion(color)
-                }
-                lock.unlock()
+            if let promise = promise {
+                completion(promise)
             } else {
-                DispatchQueue.global().asyncAfter(deadline: .now() + .milliseconds(200)) {
-                    let newColor = [UIColor.red, .blue, .green, .cyan, .magenta].randomElement()!
-                    color = newColor
-
-                    DispatchQueue.main.async {
-                        completion(newColor)
+                promise = Promise<UIColor> { seal in
+                    DispatchQueue.global().asyncAfter(deadline: .now() + .milliseconds(200)) {
+                        let newColor = [UIColor.red, .blue, .green, .cyan, .magenta].randomElement()!
+                        seal.fulfill(newColor)
                     }
-                    lock.unlock()
                 }
+
+                completion(promise!)
             }
+
+            lock.unlock()
         }
     }
 }
